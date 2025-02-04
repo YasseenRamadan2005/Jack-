@@ -139,6 +139,8 @@ class Node:
                 result += child.__repr__(level + 1)
 
         return result
+    
+    
 def parse_list_of_token(tokens):
     # Each subfunction treats tokens like a global, deleting from the start when done with each token
     # Sometimes we need to look ahead to the next token, since Jack is not a pure LL(0) language
@@ -157,10 +159,8 @@ def parse_list_of_token(tokens):
     def parse_class():
         # Creates a class node with a list of children
         class_node = Node("", 'class')
-        class_node.add_child(Node(tokens.pop(0), "keyword"))  # 'class'
-        class_node.add_child(Node(tokens.pop(0), "identifier"))  # className
-        class_node.add_child(Node(tokens.pop(0), "symbol"))  # '{'
-
+        #'class', className, '{'
+        class_node.add_children([Node(tokens.pop(0), "keyword"),Node(tokens.pop(0), "identifier"), Node(tokens.pop(0), "symbol")])
         while tokens[0] in {"static", "field"}:
             class_node.add_child(parse_classVarDec())
 
@@ -172,47 +172,49 @@ def parse_list_of_token(tokens):
 
     def parse_classVarDec():
         classVar_node = Node("", 'classVarDec')
-        classVar_node.add_child(Node(tokens.pop(0), "keyword"))  # 'static' or 'field'
-        classVar_node.add_child(Node(tokens.pop(0)))  # type (int, char, boolean, or identifier)
+        children = [Node(tokens.pop(0), "keyword"), Node(tokens.pop(0))]  # 'static' or 'field', type
 
         while True:
-            classVar_node.add_child(Node(tokens.pop(0), "identifier"))  # varName (identifier)
+            children.append(Node(tokens.pop(0), "identifier"))  # varName
             if tokens[0] != ',':
                 break
-            classVar_node.add_child(Node(tokens.pop(0), "symbol"))  # ','
+            children.append(Node(tokens.pop(0), "symbol"))  # ','
 
-        classVar_node.add_child(Node(tokens.pop(0), "symbol"))  # ';'
+        children.append(Node(tokens.pop(0), "symbol"))  # ';'
+        classVar_node.add_children(children)
         return classVar_node
 
     def parse_subroutineDec():
         subroutineDec_node = Node("", 'subroutineDec')
-        subroutineDec_node.add_child(Node(tokens.pop(0), "keyword"))  # 'constructor', 'function', or 'method'
-        subroutineDec_node.add_child(Node(tokens.pop(0)))  # 'void', type, or className
-        subroutineDec_node.add_child(Node(tokens.pop(0), "identifier"))  # subroutineName (identifier)
-        subroutineDec_node.add_child(Node(tokens.pop(0), "symbol"))  # '('
-        subroutineDec_node.add_child(parse_parameterList())  # parameterList
-        subroutineDec_node.add_child(Node(tokens.pop(0), "symbol"))  # ')'
-        subroutineDec_node.add_child(parse_subroutineBody())  # subroutineBody
+        subroutineDec_node.add_children([
+            Node(tokens.pop(0), "keyword"),  # 'constructor', 'function', or 'method'
+            Node(tokens.pop(0)),  # 'void' or type
+            Node(tokens.pop(0), "identifier"),  # subroutineName
+            Node(tokens.pop(0), "symbol")  # '('
+        ])
+        subroutineDec_node.add_child(parse_parameterList())
+        subroutineDec_node.add_children([
+            Node(tokens.pop(0), "symbol"),  # ')'
+            parse_subroutineBody()
+        ])
         return subroutineDec_node
 
     def parse_parameterList():
         parameterList_node = Node("", 'parameterList')
         while tokens[0] != ')':
-            parameterList_node.add_child(Node(tokens.pop(0)))  # type
-            parameterList_node.add_child(Node(tokens.pop(0), "identifier"))  # varName
+            #type varName
+            parameterList_node.add_children([Node(tokens.pop(0)), Node(tokens.pop(0), "identifier")])
             if tokens[0] == ',':
                 parameterList_node.add_child(Node(tokens.pop(0), "symbol"))  # ','
         return parameterList_node
 
     def parse_subroutineBody():
+        # { varDecs* statements }
         subroutineBody_node = Node("", 'subroutineBody')
         subroutineBody_node.add_child(Node(tokens.pop(0), "symbol"))  # '{'
-
         while tokens[0] == 'var':
             subroutineBody_node.add_child(parse_varDec())
-
-        subroutineBody_node.add_child(parse_statements())
-        subroutineBody_node.add_child(Node(tokens.pop(0), "symbol"))  # '}'
+        subroutineBody_node.add_children([parse_statements(), Node(tokens.pop(0), "symbol")])
         return subroutineBody_node
 
     def parse_varDec():
@@ -231,68 +233,83 @@ def parse_list_of_token(tokens):
 
     def parse_statements():
         statements_node = Node("", "statements")
-        while tokens and tokens[0] in {"let", "if", "while", "do", "return"}:
-            if tokens[0] == "let":
-                statements_node.add_child(parse_letStatement())
-            elif tokens[0] == "if":
-                statements_node.add_child(parse_ifStatement())
-            elif tokens[0] == "while":
-                statements_node.add_child(parse_whileStatement())
-            elif tokens[0] == "do":
-                statements_node.add_child(parse_doStatement())
-            elif tokens[0] == "return":
-                statements_node.add_child(parse_returnStatement())
+
+        dispatch_table = {
+            "let": parse_letStatement,
+            "if": parse_ifStatement,
+            "while": parse_whileStatement,
+            "do": parse_doStatement,
+            "return": parse_returnStatement
+        }
+
+        while tokens and tokens[0] in dispatch_table:
+            statements_node.add_child(dispatch_table[tokens.pop(0)]())
+
         return statements_node
 
     def parse_letStatement():
         letStatement_node = Node("", "letStatement")
-        letStatement_node.add_child(Node(tokens.pop(0), "keyword"))  # 'let'
-        letStatement_node.add_child(Node(tokens.pop(0), "identifier"))  # varName
+        children = [
+            Node(tokens.pop(0), "keyword"),  # 'let'
+            Node(tokens.pop(0), "identifier")  # varName
+        ]
 
         if tokens[0] == '[':
-            letStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '['
-            letStatement_node.add_child(parse_expression())
-            letStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # ']'
+            children.extend([
+                Node(tokens.pop(0), "symbol"),  # '['
+                parse_expression(),
+                Node(tokens.pop(0), "symbol")   # ']'
+            ])
 
-        letStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '='
-        letStatement_node.add_child(parse_expression())
-        letStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # ';'
+        children.extend([
+            Node(tokens.pop(0), "symbol"),  # '='
+            parse_expression(),
+            Node(tokens.pop(0), "symbol")  # ';'
+        ])
+        letStatement_node.add_children(children)
         return letStatement_node
 
     def parse_ifStatement():
         ifStatement_node = Node("", "ifStatement")
-        ifStatement_node.add_child(Node(tokens.pop(0), "keyword"))  # 'if'
-        ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '('
-        ifStatement_node.add_child(parse_expression())
-        ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # ')'
-        ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '{'
-        ifStatement_node.add_child(parse_statements())
-        ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '}'
+        children = [
+            Node(tokens.pop(0), "keyword"),  # 'if'
+            Node(tokens.pop(0), "symbol"),  # '('
+            parse_expression(),
+            Node(tokens.pop(0), "symbol"),  # ')'
+            Node(tokens.pop(0), "symbol"),  # '{'
+            parse_statements(),
+            Node(tokens.pop(0), "symbol")   # '}'
+        ]
 
         if tokens[0] == 'else':
-            ifStatement_node.add_child(Node(tokens.pop(0), "keyword"))  # 'else'
-            ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '{'
-            ifStatement_node.add_child(parse_statements())
-            ifStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '}'
+            children.extend([
+                Node(tokens.pop(0), "keyword"),  # 'else'
+                Node(tokens.pop(0), "symbol"),  # '{'
+                parse_statements(),
+                Node(tokens.pop(0), "symbol")   # '}'
+            ])
 
+        ifStatement_node.add_children(children)
         return ifStatement_node
 
     def parse_whileStatement():
         whileStatement_node = Node("", "whileStatement")
-        whileStatement_node.add_child(Node(tokens.pop(0), "keyword"))  # 'while'
-        whileStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '('
-        whileStatement_node.add_child(parse_expression())
-        whileStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # ')'
-        whileStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '{'
-        whileStatement_node.add_child(parse_statements())
-        whileStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # '}'
+        whileStatement_node.add_children([
+            Node(tokens.pop(0), "keyword"),  # 'while'
+            Node(tokens.pop(0), "symbol"),  # '('
+            parse_expression(),
+            Node(tokens.pop(0), "symbol"),  # ')'
+            Node(tokens.pop(0), "symbol"),  # '{'
+            parse_statements(),
+            Node(tokens.pop(0), "symbol")  # '}'            
+        ])
         return whileStatement_node
 
     def parse_doStatement():
         doStatement_node = Node("", "doStatement")
-        doStatement_node.add_child(Node(tokens.pop(0), "keyword"))  # 'do'
-        doStatement_node.add_children(parse_subroutine_call())
-        doStatement_node.add_child(Node(tokens.pop(0), "symbol"))  # ';'
+        doStatement_node.add_children(
+            [Node(tokens.pop(0), "keyword")] + parse_subroutine_call() + [Node(tokens.pop(0), "symbol")]
+        )
         return doStatement_node
 
     def parse_returnStatement():
@@ -323,18 +340,14 @@ def parse_list_of_token(tokens):
         elif tokens[0] in {"true", "false", "null", "this"}:
             term_node.add_child(Node(tokens.pop(0), "keyword"))
         elif tokens[0] == '(':
-            term_node.add_child(Node(tokens.pop(0), "symbol"))  # '('
-            term_node.add_child(parse_expression())
-            term_node.add_child(Node(tokens.pop(0), "symbol"))  # ')'
+            #( expression )
+            term_node.add_children([Node(tokens.pop(0), "symbol") , parse_expression(), Node(tokens.pop(0), "symbol")])
         elif tokens[0] in {'-', '~'}:
-            term_node.add_child(Node(tokens.pop(0), "symbol"))
-            term_node.add_child(parse_term())
-        elif tokens[1] == '[':
-            term_node.add_child(Node(tokens.pop(0), "identifier"))  # varName
-            term_node.add_child(Node(tokens.pop(0), "symbol"))  # '['
-            term_node.add_child(parse_expression())
-            term_node.add_child(Node(tokens.pop(0), "symbol"))  # ']'
-        elif tokens[1] in {'.', '('}:
+            term_node.add_children([Node(tokens.pop(0), "symbol"), parse_term()])
+        elif len(tokens) > 1 and tokens[1] == '[':
+            #varName [ expression ]
+            term_node.add_children([Node(tokens.pop(0), "identifier"), Node(tokens.pop(0), "symbol"), parse_expression(), Node(tokens.pop(0), "symbol")])
+        elif len(tokens) > 1 and tokens[1] in {'.', '('}:
             term_node.add_children(parse_subroutine_call())
         else:
             term_node.add_child(Node(tokens.pop(0), "identifier"))  # varName
@@ -343,13 +356,11 @@ def parse_list_of_token(tokens):
 
     def parse_expressionList():
         expressionList_node = Node("", "expressionList")
-
         if tokens[0] != ')':
             expressionList_node.add_child(parse_expression())
             while tokens[0] == ',':
-                expressionList_node.add_child(Node(tokens.pop(0), "symbol"))  # ','
-                expressionList_node.add_child(parse_expression())
-
+                #, expression
+                expressionList_node.add_children([Node(tokens.pop(0), "symbol"), parse_expression()])
         return expressionList_node
 
     def parse_subroutine_call():
@@ -357,12 +368,16 @@ def parse_list_of_token(tokens):
         subroutine_call_nodes.append(Node(tokens.pop(0), "identifier"))  # subroutineName or className/varName
 
         if tokens[0] == '.':
-            subroutine_call_nodes.append(Node(tokens.pop(0), "symbol"))  # '.'
-            subroutine_call_nodes.append(Node(tokens.pop(0), "identifier"))  # subroutineName
+            subroutine_call_nodes.extend([
+                Node(tokens.pop(0), "symbol"),  # '.'
+                Node(tokens.pop(0), "identifier")  # subroutineName  
+            ])
 
-        subroutine_call_nodes.append(Node(tokens.pop(0), "symbol"))  # '('
-        subroutine_call_nodes.append(parse_expressionList())
-        subroutine_call_nodes.append(Node(tokens.pop(0), "symbol"))  # ')'
+        subroutine_call_nodes.extend([
+            Node(tokens.pop(0), "symbol"),  # '('
+            parse_expressionList(),
+            Node(tokens.pop(0), "symbol")  # ')'  
+        ])
 
         return subroutine_call_nodes
 

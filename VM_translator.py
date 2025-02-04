@@ -150,31 +150,28 @@ class Address:
         return result + self.set_D_reg_to_address_value() + "@SP\nAM=M+1\nA=A-1\nM=D\n"
     
 def convert_math_instruction(instruction):
-    # Ensure the instruction is valid
-    if instruction not in {"add", "sub", "or", "and", "neg", "not"}:
+    operation_map = {
+        "add": "D+M",
+        "sub": "M-D",
+        "or": "D|M",
+        "and": "D&M",
+        "neg": "-M",
+        "not": "!M"
+    }
+
+    if instruction not in operation_map:
         raise ValueError(f"Invalid instruction: {instruction}")
-    
+
     result = f"\n//{instruction}\n"
-    # Shared templates
-    stack_decrement_template = "@SP\nAM=M-1\nD=M\nA=A-1\n"
-    stack_neutral_template = "@SP\nA=M-1\n"
-    
-    # Logic based on instruction type
-    if instruction in {"add", "sub", "or", "and"}:
-        operation_map = {
-            "add": "D+M",
-            "sub": "M-D",
-            "or": "D|M",
-            "and": "D&M",
-        }
-        return result + f"{stack_decrement_template}M={operation_map[instruction]}\n"
-    
-    if instruction in {"neg", "not"}:
-        operation_map = {
-            "neg": "-",
-            "not": "!",
-        }
-        return result + f"{stack_neutral_template}M={operation_map[instruction]}M\n"
+    stack_decrement = "@SP\nAM=M-1\nD=M\nA=A-1\n"
+    stack_neutral = "@SP\nA=M-1\n"
+
+    return result + (
+        f"{stack_decrement}M={operation_map[instruction]}\n"
+        if instruction in {"add", "sub", "or", "and"}
+        else f"{stack_neutral}M={operation_map[instruction]}\n"
+    )
+
 
 def convert_Compare_Instruction(instruction):
     global current_function
@@ -201,11 +198,10 @@ def convert_return():
     return f"\n//return\n@RETURN\n0;JMP\n"
 
 
-#I can assume function foo in class Bar with k argument will be compliled as function "function Bar.foo.k"
-
-#Each function has it's call number - the amount of times it calls another function
-
-#This is used to generate unique return addresses for each function called
+"""
+I can assume function foo in class Bar with k arguments will be compliled as function "function Bar.foo.k"
+Each function has it's call number - the amount of times it calls another function.
+This is used to generate unique return addresses for each function called"""
 
 func_mapping = {"": 0}
 
@@ -243,20 +239,22 @@ def convert_function(name_of_the_function, number_of_lcls):
 def convert_lbl(name_of_the_label):
     global current_file
     global current_function
-    return f"\n//label {name_of_the_label}\n({current_file}_{current_function}${name_of_the_label})\n"
+    return f"\n//label {name_of_the_label[1]}\n({current_function}${name_of_the_label[1]})\n"
 
 def convert_goto(name_of_the_label):
     global current_file
     global current_function
-    return f"\n//goto {name_of_the_label}\n@{current_file}_{current_function}${name_of_the_label}\n0;JMP\n"
+    return f"\n//goto {name_of_the_label}\n@{current_function}${name_of_the_label[1]}\n0;JMP\n"
     
 def convert_if_goto(label_name):
+    print(label_name)
     global current_file
     global current_function
-    return f"\n//if-goto {label_name}\n@SP\nAM=M-1\nD=M\n" + f"@{current_file}_{current_function}${label_name}\nD;JNE\n"
+    return f"\n//if-goto {label_name}\n@SP\nAM=M-1\nD=M\n" + f"@{current_function}${label_name[1]}\nD;JNE\n"
+
+
 
 #This is the code for comparison instructions and call/return. It does not set SP to 256 initially and it does not call Sys.init
-
 def give_starter_code() -> str:
     """
     Returns the string containing the starter code.
@@ -267,7 +265,7 @@ def give_starter_code() -> str:
 #This is bootstrap code. It sets SP to 256. Then it calls Sys.init. This assume we have the starter code.
 def give_boot_strap_code():
     result = "@256\nD=A\n@SP\n\nM=D\n"
-    #Since Sys.vm goes into an infinite loop after calling the OS inital functions and then calling Main.main, we don't care about the name of the "file" that calls Sys.init 
+    #Since Sys.vm goes into an infinite loop after calling the OS inital functions and then calling Main.main, we don't care about the name of the "function" that calls Sys.init 
     global current_file
     current_file = ""
     result += convert_call("Sys.init", 0)
@@ -302,52 +300,28 @@ def translate_vm(vm_filename: str):
     with open(asm_filename, 'a') as asm_file:
         global current_file
         current_file = os.path.splitext(os.path.basename(vm_filename))[0]
+        
+        command_map = {
+            "push": lambda parts: Address(AddressType[parts[1].upper()], int(parts[2])).push_from_address(),
+            "pop": lambda parts: Address(AddressType[parts[1].upper()], int(parts[2])).pop_to_address(),
+            "add": convert_math_instruction, "sub": convert_math_instruction,
+            "neg": convert_math_instruction, "and": convert_math_instruction,
+            "or": convert_math_instruction, "not": convert_math_instruction,
+            "eq": convert_Compare_Instruction, "gt": convert_Compare_Instruction, "lt": convert_Compare_Instruction,
+            "label": convert_lbl, "goto": convert_goto, "if-goto": convert_if_goto,
+            "function": lambda parts: convert_function(parts[1], int(parts[2])),
+            "call": lambda parts: convert_call(parts[1], int(parts[2])),
+            "return": lambda _: convert_return()
+        }
 
         for line in lines:
             parts = line.split()
             command = parts[0].lower()
-            
-            # Translate VM commands to assembly
-            if command == "push":
-                address_type = AddressType[parts[1].upper()]
-                index = int(parts[2])
-                asm_file.write(Address(address_type, index).push_from_address())
-
-            elif command == "pop":
-                address_type = AddressType[parts[1].upper()]
-                index = int(parts[2])
-                asm_file.write(Address(address_type, index).pop_to_address())
-
-            elif command in {"add", "sub", "neg", "and", "or", "not"}:
-                asm_file.write(convert_math_instruction(command))
-
-            elif command in {"eq", "gt", "lt"}:
-                asm_file.write(convert_Compare_Instruction(command))
-            
-            elif command == "label":
-                asm_file.write(convert_lbl(parts[1]))
-
-            elif command == "goto":
-                asm_file.write(convert_goto(parts[1]))
-
-            elif command == "if-goto":
-                asm_file.write(convert_if_goto(parts[1]))
-
-            elif command == "function":
-                function_name = parts[1]
-                num_lcls = int(parts[2])
-                asm_file.write(convert_function(function_name, num_lcls))
-
-            elif command == "call":
-                function_name = parts[1]
-                num_args = int(parts[2])
-                asm_file.write(convert_call(function_name, num_args))
-            
-            elif command == "return":
-                asm_file.write(convert_return())
-            
+            if command in command_map:
+                asm_file.write(command_map[command](parts) if command in {"push", "pop", "function", "call", "goto", "if-goto", "label"} else command_map[command](command))
             else:
                 raise ValueError(f"Unrecognized VM command: {line}")
+
 
 
 def give_bootstrap_code():
@@ -419,6 +393,8 @@ def translate_directory(directory_name: str):
                 asm_file.write(starter_code + "\n")  # Write starter code to each file
             print(f"Translating file independently: {vm_file}")
             translate_vm(vm_file)  # Append VM translation to the respective .asm file
+      
+      
             
 #Recieve a foo.vm filw and return a g_foo.vim file        
 def group(filename: str):
@@ -510,44 +486,6 @@ def group(filename: str):
 3. Two pushes followed by a add/sub/or or a gt/lt/eq (can only optimize if they are the same or contants)
 
 
-"""
-            
-            
-            
-            
-            
-class Push_Instruction:
-    """
-        A push instruciton has:
-            1. A base
-            2. An index
-            3. Possible increment/decrement
-            4. Possible negation/bitwise not    
-            
-            
-            Idea: Have a list of modifers like [neg, increment] reading from left to right
-    """    
-    def __init__(self, base, index):
-        self.base = base
-        self.index = index
-        self.weirdness = []
-
-    def __repr__(self):
-        return f"PUSH {self.base} {self.index}"
-    
-    #Add any in/de crement value
-    def add_crement(self, i: int):
-        self.weirdness.append(i)
-        
-    #Add any not/neg value
-    def add_n(self,n):
-        self.weirdness.append(n)
-        
-    #Set the D value
-    def set_to_D(self):
-        #If the index is 
-        return "\n".join([])
-
-    
-#print(translate_directory(sys.argv[1]))
-print(group(sys.argv[1]))
+"""   
+print(translate_directory(sys.argv[1]))
+#print(group(sys.argv[1]))

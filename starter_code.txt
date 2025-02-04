@@ -1,0 +1,160 @@
+@SKIPo
+0;JMP              // Skip setup for now
+
+(CALL)             // Function call setup
+@SP
+AM=M+1
+A=A-1
+M=D                // Push return address to the stack
+@LCL
+D=M
+@SP
+AM=M+1
+A=A-1
+M=D                // Push LCL to the stack
+@ARG
+D=M
+@SP
+AM=M+1
+A=A-1
+M=D                // Push ARG to the stack
+@THIS
+D=M
+@SP
+AM=M+1
+A=A-1
+M=D                // Push THIS to the stack
+@THAT
+D=M
+@SP
+AM=M+1
+A=A-1
+M=D                // Push THAT to the stack
+@14
+D=M
+@SP
+D=M-D
+@ARG
+M=D                // Reposition ARG for the called function
+@SP
+D=M
+@LCL
+M=D                // Set LCL for the called function
+@13
+A=M
+0;JMP              // Jump to the function entry point
+
+(RETURN)           // Function return sequence
+@LCL
+D=M
+@14
+M=D                // Save current LCL in temp 14
+@5
+A=D-A
+D=M
+@15
+M=D                // Save return address in temp 15
+@SP
+AM=M-1
+D=M
+@ARG
+A=M
+M=D                // Reposition return value for caller
+@ARG
+D=M
+@SP
+M=D+1              // Restore SP for the caller
+@14
+A=M-1
+D=M
+@THAT
+M=D                // Restore THAT
+@14
+A=M-1
+A=A-1
+D=M
+@THIS
+M=D                // Restore THIS
+@14
+A=M-1
+A=A-1
+A=A-1
+D=M
+@ARG
+M=D                // Restore ARG
+@14
+A=M-1
+A=A-1
+A=A-1
+A=A-1
+D=M
+@LCL
+M=D                // Restore LCL
+@15
+A=M
+0;JMP              // Jump to the return address
+
+(SKIPo)            // Skip setup label
+
+@SKIP
+0;JMP              // Skip setup if already initialized
+
+(COMP_BEGIN)       // Start comparison logic
+@13
+M=D                // Save return address
+@SP
+A=M-1
+D=M                // Load top stack value
+A=A-1
+D=M-D              // Compute difference of top two stack values
+@15
+M=D                // Store comparison result
+@14
+D=M                // Load comparison flag
+@EQ_BEGIN
+D;JEQ              // Jump if equal
+@LT_BEGIN
+D;JLT              // Jump if less than
+@15
+D=M
+@RETURN_TRUE
+D;JGT              // Jump if greater than
+@RETURN_FALSE
+0;JMP              // Otherwise, return false
+
+(EQ_BEGIN)         // Handle equality case
+@15
+D=M
+@RETURN_TRUE
+D;JEQ              // Return true if equal
+@RETURN_FALSE
+0;JMP              // Otherwise, return false
+
+(LT_BEGIN)         // Handle less-than case
+@15
+D=M
+@RETURN_TRUE
+D;JLT              // Return true if less than
+@RETURN_FALSE
+0;JMP              // Otherwise, return false
+
+(RETURN_TRUE)      // Return true (-1)
+D=-1
+@COMPLETE
+0;JMP
+
+(RETURN_FALSE)     // Return false (0)
+D=0
+@COMPLETE
+0;JMP
+
+(COMPLETE)         // Finalize comparison
+@SP
+AM=M-1             // Pop top stack value
+A=A-1
+M=D                // Store result in stack
+@13
+A=M
+0;JMP              // Return to saved address
+
+(SKIP)             // Skip setup
