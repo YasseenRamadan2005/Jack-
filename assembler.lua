@@ -430,6 +430,8 @@ C_instructions = {
     ['A=A-1'] = '1110110010100000',
     ['A=M-1'] = '1111110010100000'
 }
+Macros = {}
+V_Values = 15
 local lfs = require "lfs"
 local bit = bit32 or require("bit")
 
@@ -463,56 +465,71 @@ local function Convert_Ainstruction(a)
     end
 end
 
--- Main processing
-local function process_file(input_path, output_path)
-    print("Proccessing:\t" .. input_path)
-    -- Change directory to the input file's directory
-    lfs.chdir(input_path)
 
-    -- Read and clean the input file
-    local file = io.open(input_path, 'rb')
-    local parsed = file:read('*a'):gsub("\r\n", "\n"):gsub(" ", "")
-    file:close()
 
-    -- Remove comments and empty lines
-    parsed = parsed:gsub("%s*//.-\n", "\n"):gsub("\n+", "\n")
-    -- %s*//.-\n: Removes single-line comments
-    -- %s*: Matches any whitespace characters (0 or more)
-    -- //: Matches double slashes (comment start)
-    -- .-: Matches any character (0 or more) non-greedily
-    -- \n: Matches a newline character
+local function Convert_MacroDeclaraction(name_of_the_macro, list_of_asm_instructions)
+    Macros[name_of_the_macro] = list_of_asm_instructions
+end
 
-    -- \n+: Replaces multiple newlines with a single newline
-    -- First pass: handle labels
+local function assemble(asm_instructions, the_file)
     local line_number = 0
-    A_Instructions = {}
-    V_Values = 15
-    for line in parsed:gmatch("[^\n]+") do
-        -- [^\n]+: Matches any sequence of characters that are not newlines
-        if line:match("^%(") then
-            -- ^%(: Matches lines that start with an opening parenthesis (label definition)
+    local is_macro = false
+    local macro_name = nil
+    local processed_lines = {}
+    local macro_instructions = {}
+
+    -- First pass: Collect macros and labels
+    for line in asm_instructions:gmatch("[^\n]+") do
+        local new_macro_name = line:match("^MACRO_(%S+)")
+        
+        if new_macro_name and not is_macro then
+            is_macro = true
+            macro_name = new_macro_name
+            macro_instructions = {}  -- Start collecting macro instructions
+        elseif line:match("^MEND") then
+            is_macro = false
+            Convert_MacroDeclaraction(macro_name, macro_instructions)  -- Now we store the macro properly
+            macro_name = nil  -- Reset macro name
+        elseif is_macro then
+            table.insert(macro_instructions, line)
+        elseif line:match("^%(") then
             local label = line:match("^%((.+)%)$")
-            -- %((.+)%): Captures the label name inside parentheses
-            -- ^%(: Opening parenthesis at the start of the line
-            -- (.+): Captures one or more of any character (greedy)
-            -- %): Closing parenthesis
             A_Instructions[label] = line_number
         else
+            table.insert(processed_lines, line)
             line_number = line_number + 1
         end
     end
 
-    -- Second pass: generate machine code
-    local output_file = io.open(output_path, 'w')
-    for line in parsed:gmatch("[^\n]+") do
-        if line:match("^@") then
-            -- ^@: Matches lines that start with '@' (A-instruction)
-            output_file:write(Convert_Ainstruction(line) .. "\n")
+
+    -- Second pass: Generate machine code
+    for _, line in ipairs(processed_lines) do
+        if Macros[line] then
+            -- Expand macro
+            for _, macro_line in ipairs(Macros[line]) do
+                the_file:write(macro_line .. "\n")
+            end
+        elseif line:match("^@") then
+            the_file:write(Convert_Ainstruction(line) .. "\n")
         elseif not line:match("^%(") then
-            -- ^%(: Excludes lines that start with '(' (labels)
-            output_file:write(C_instructions[line] .. "\n")
+            the_file:write(C_instructions[line] .. "\n")
         end
     end
+end
+
+
+    
+local function process_file(input_path, output_path)
+    print("Processing:\t" .. input_path)
+    -- Read and clean the input file
+    local file = io.open(input_path, "rb")
+    local parsed = file:read("*a"):gsub("\r\n", "\n"):gsub(" ", "")
+    file:close()
+    -- Remove comments and empty lines
+    parsed = parsed:gsub("%s*//.-\n", "\n"):gsub("\n+", "\n")
+    local output_file = io.open(output_path, "w")
+    assemble(parsed, output_file)
+
     output_file:close()
 end
 
@@ -524,15 +541,19 @@ local function process_single_file(input_file)
     print("Assembled " .. input_file .. " -> " .. output_file .. "\n")
 end
 
--- Function to process all .asm files in a directory
 local function process_directory(dir_path)
     for file in lfs.dir(dir_path) do
         if file:match("%.asm$") then
-            local input_file = dir_path .. file
+            --Reset the context for each file
+            A_Instructions = {}
+            V_Values = 15
+            Macros = {}
+            local input_file = dir_path .. "/" .. file  -- Ensure correct path
             process_single_file(input_file)
         end
     end
 end
+
 
 -- Main function to determine input type (file or directory) and process accordingly
 local function main(arg)
