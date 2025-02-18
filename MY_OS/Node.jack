@@ -1,0 +1,27 @@
+class Node {
+    field int hold, size;
+    field Node next, prev;
+
+    constructor Node new(int h, int s, Node n, Node p){
+        let h = hold;
+
+    }
+    //Just make getters
+
+    method int get_hold(){
+        return hold;
+    }
+
+    method int get_size(){
+        return size;
+    }
+
+    method Node get_next(){
+        return next;
+    }
+
+    method Node get_prev(){
+        return prev;
+    }
+
+}
